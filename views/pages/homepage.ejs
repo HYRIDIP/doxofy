@@ -36,6 +36,10 @@
                             </ul>
                         </li>
                     </ul>
+
+                    <span class="online-users">
+                        Online: <strong><%= typeof onlineCount !== 'undefined' ? onlineCount : 0 %></strong>
+                    </span>
                     <ul class="nav navbar-nav navbar-right">
                         <li><a href="/profile?uid=<%= user.id %>"><span class="glyphicon glyphicon-user"></span>
                                 Profile</a></li>
