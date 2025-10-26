@@ -8,6 +8,7 @@ const passport = require('passport');
 const fileUpload = require('express-fileupload');
 const sqlite3 = require('sqlite3').verbose();
 const app = express();
+const onlineTracker = require('./onlineTracker');
 
 // Set view engine to ejs
 app.set('view engine', 'ejs');
