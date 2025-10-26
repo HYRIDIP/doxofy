@@ -37,6 +37,12 @@ app.use(cors(corsOptions));
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Online tracker middleware
+app.use((req, res, next) => {
+    const clientIP = onlineTracker.getClientIP(req);
+    onlineTracker.updateUser(clientIP);
+    next();
+});
 
 // Serialize and deserialize user
 passport.serializeUser((user, done) => {
