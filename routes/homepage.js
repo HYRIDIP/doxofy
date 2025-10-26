@@ -1,70 +1,143 @@
 const express = require('express');
 const router = express.Router();
 const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+const onlineTracker = require('../onlineTracker');
 
-const db = new sqlite3.Database('./database/pastebin.db');
+// Путь к базе данных
+const dbPath = path.join(__dirname, '..', 'database', 'pastebin.db');
 
-router.get('/', (req, res) => {
-    const page = parseInt(req.query.page) || 1;
-    const limit = 30;
-    const offset = (page - 1) * limit;
+// Создание подключения к базе данных
+const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE, (err) => {
+    if (err) {
+        console.error('Error opening database:', err.message);
+    } else {
+        console.log('Connected to the SQLite database for homepage.');
+    }
+});
 
-    const sql = `
-        SELECT 
-            pastes.*, 
-            users.id AS user_id, 
-            pastes.pinned,
-            (SELECT COUNT(*) FROM views WHERE views.paste_id = pastes.id) AS views_count,
-            (SELECT COUNT(*) FROM comments WHERE comments.paste_id = pastes.id) AS comments_count
-        FROM pastes 
-        LEFT JOIN users ON pastes.user_name = users.username 
-        ORDER BY pastes.pinned DESC, pastes.created_at DESC 
-        LIMIT ? OFFSET ?
+/* GET home page. */
+router.get('/', function(req, res, next) {
+    const onlineCount = onlineTracker.getOnlineCount();
+    
+    // Получаем последние публикации
+    const query = `
+        SELECT p.*, u.username 
+        FROM pastes p 
+        LEFT JOIN users u ON p.user_id = u.id 
+        WHERE p.is_public = 1 
+        ORDER BY p.created_at DESC 
+        LIMIT 10
     `;
-
-    db.all(sql, [limit, offset], (err, rows) => {
+    
+    db.all(query, [], (err, rows) => {
         if (err) {
-            console.error(err);
-            return res.status(500).send('Internal Server Error');
+            console.error('Error fetching recent pastes:', err.message);
+            return res.status(500).render('pages/homepage', {
+                title: 'Doxify - Home',
+                recentPastes: [],
+                onlineCount: onlineCount,
+                error: 'Failed to load recent pastes'
+            });
         }
 
-        // Count total pastes for pagination
-        db.get(`SELECT COUNT(*) AS total FROM pastes`, [], (err, countResult) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).send('Internal Server Error');
-            }
-
-            const totalPastes = countResult.total;
-            const totalPages = Math.ceil(totalPastes / limit);
-
-            // Check if user is logged in
-            const loggedIn = req.cookies.LoggedIn === 'true';
-
-            if (loggedIn && req.cookies.username) {
-                const username = req.cookies.username;
-                db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-                    if (err) {
-                        console.error(err);
-                        return res.status(500).send('Internal Server Error');
-                    }
-                    res.render('pages/homepage', { 
-                        pastes: rows, 
-                        loggedIn: loggedIn, 
-                        user: user, 
-                        page, 
-                        totalPages 
-                    });
-                });
-            } else {
-                res.render('pages/homepage', { 
-                    pastes: rows, 
-                    loggedIn: loggedIn, 
-                    page, 
-                    totalPages 
-                });
-            }
+        // Форматируем дату для каждого паста
+        const recentPastes = rows.map(paste => {
+            return {
+                ...paste,
+                created_at: new Date(paste.created_at).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }),
+                preview: paste.content.length > 150 ? paste.content.substring(0, 150) + '...' : paste.content
+            };
         });
+
+        // Получаем статистику
+        db.get(`
+            SELECT 
+                COUNT(*) as totalPastes,
+                (SELECT COUNT(*) FROM users) as totalUsers,
+                (SELECT COUNT(*) FROM pastes WHERE created_at >= datetime('now', '-1 day')) as pastesToday
+        `, [], (err, stats) => {
+            if (err) {
+                console.error('Error fetching stats:', err.message);
+                stats = { totalPastes: 0, totalUsers: 0, pastesToday: 0 };
+            }
+
+            res.render('pages/homepage', {
+                title: 'Doxify - Home',
+                recentPastes: recentPastes,
+                stats: stats,
+                onlineCount: onlineCount,
+                user: req.user || null,
+                success: req.query.success,
+                error: req.query.error
+            });
+        });
+    });
+});
+
+/* GET about page. */
+router.get('/about', function(req, res, next) {
+    const onlineCount = onlineTracker.getOnlineCount();
+    
+    res.render('pages/homepage', {
+        title: 'Doxify - About',
+        onlineCount: onlineCount,
+        user: req.user || null,
+        section: 'about'
+    });
+});
+
+/* GET features page. */
+router.get('/features', function(req, res, next) {
+    const onlineCount = onlineTracker.getOnlineCount();
+    
+    res.render('pages/homepage', {
+        title: 'Doxify - Features',
+        onlineCount: onlineCount,
+        user: req.user || null,
+        section: 'features'
+    });
+});
+
+/* GET privacy page. */
+router.get('/privacy', function(req, res, next) {
+    const onlineCount = onlineTracker.getOnlineCount();
+    
+    res.render('pages/homepage', {
+        title: 'Doxify - Privacy Policy',
+        onlineCount: onlineCount,
+        user: req.user || null,
+        section: 'privacy'
+    });
+});
+
+/* GET terms page. */
+router.get('/terms', function(req, res, next) {
+    const onlineCount = onlineTracker.getOnlineCount();
+    
+    res.render('pages/homepage', {
+        title: 'Doxify - Terms of Service',
+        onlineCount: onlineCount,
+        user: req.user || null,
+        section: 'terms'
+    });
+});
+
+// Закрытие подключения к базе данных при завершении приложения
+process.on('SIGINT', () => {
+    db.close((err) => {
+        if (err) {
+            console.error('Error closing database:', err.message);
+        } else {
+            console.log('Database connection closed.');
+        }
+        process.exit(0);
     });
 });
 
